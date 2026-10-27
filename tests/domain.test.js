@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProduct, eligibility } from '../public/js/domain/product.js';
-import { buildWeek, dayReport } from '../public/js/domain/routine.js';
-import { checkCombos } from '../public/js/domain/interactions.js';
-import { findSimilar } from '../public/js/domain/duplicates.js';
-import { parseLabelText } from '../public/js/domain/parse.js';
-import { DEMO_PRODUCTS } from '../public/js/domain/demo.js';
-import { guessCategory } from '../public/js/domain/categories.js';
+import { createProduct, eligibility, suggestUsage } from '../docs/js/domain/product.js';
+import { buildWeek, dayReport } from '../docs/js/domain/routine.js';
+import { checkCombos } from '../docs/js/domain/interactions.js';
+import { findSimilar } from '../docs/js/domain/duplicates.js';
+import { parseLabelText } from '../docs/js/domain/parse.js';
+import { DEMO_PRODUCTS } from '../docs/js/domain/demo.js';
+import { guessCategory } from '../docs/js/domain/categories.js';
 
 const TODAY = '2026-10-14';
 const verified = (o) => createProduct({ categoryConfirmed: true, verified: true, ...o });
@@ -32,16 +32,26 @@ test('category hints from names', () => {
   assert.equal(guessCategory('더 레티놀 0.3'), null);
 });
 
-test('retinoid without frequency is excluded; with frequency goes PM only', () => {
+test('retinoid without frequency gets ingredient-based suggestion: PM, 2x/week', () => {
   const r = verified({ name: '더 레티놀 0.3', category: 'serum' });
-  assert.ok(eligibility(r, {}, TODAY).reasons.includes('frequency_unknown'));
-  r.frequencyPerWeek = 2;
+  assert.ok(eligibility(r, {}, TODAY).ok);
+  assert.deepEqual(suggestUsage(r), { timeOfUse: 'pm', perWeek: 2, basis: 'retinoid' });
   const cream = verified({ name: 'Cream', category: 'cream' });
   const week = buildWeek({ products: [r, cream], weekStart: '2026-10-12', todayISO: TODAY });
   const amIds = week.days.flatMap((d) => d.am.map((s) => s.productId));
   const pmDays = week.days.filter((d) => d.pm.some((s) => s.productId === r.id));
   assert.ok(!amIds.includes(r.id));
   assert.equal(pmDays.length, 2);
+  // 사용자가 입력한 빈도가 있으면 그 값이 우선
+  r.frequencyPerWeek = 3;
+  const week2 = buildWeek({ products: [r, cream], weekStart: '2026-10-12', todayISO: TODAY });
+  assert.equal(week2.days.filter((d) => d.pm.some((s) => s.productId === r.id)).length, 3);
+});
+
+test('UV filters in ingredients suggest morning use', () => {
+  const s = verified({ name: 'Daily fluid', category: 'emulsion', ingredientsText: 'Water, Zinc Oxide, Glycerin' });
+  assert.equal(suggestUsage(s).timeOfUse, 'am');
+  assert.equal(suggestUsage(verified({ name: 'Toner', category: 'toner', ingredientsText: 'Water, Glycerin, Panthenol' })).perWeek, 7);
 });
 
 test('retinoid and exfoliant scheduled on different days when possible', () => {

@@ -18,14 +18,22 @@ npm test                  # 루틴·조합·중복·라벨 파서 단위 테스�
 - 서버 사진 인식(Claude 비전)을 쓰려면 `npm install` 후 `.env` 에 `ANTHROPIC_API_KEY` 를 넣으세요. 설정하지 않으면 브라우저 안에서 무료 OCR(Tesseract.js)이 동작합니다.
 - 데이터 파일은 `data/` 에 생성됩니다(SQLite, 업로드 사진). 처음 실행 시 예시 제품 14개가 "접수됨" 상태의 등록 요청으로 들어가 관리자 검토 흐름을 볼 수 있습니다(`SEED_DEMO=false` 로 끌 수 있음).
 
+## GitHub Pages로 바로 써 보기 (서버 없이)
+
+1. 저장소에 `docs/`, `server/`, `tests/`, `scripts/`, `supabase/`, `package.json`, `README.md`, `.env.example`, `.gitignore` 를 올립니다. (`.env`, `data/`, zip 파일은 올리지 마세요)
+2. 저장소 **Settings → Pages → Build and deployment**: Source `Deploy from a branch`, Branch `main` / 폴더 **`/docs`** → Save
+3. 1~2분 뒤 `https://아이디.github.io/저장소이름/` 접속
+
+Pages에서는 서버가 없으므로 **루틴·화장대·마스크팩·사진 인식(브라우저 OCR)** 만 동작합니다. 제품 검색(관리자+고객 누적 데이터)·등록 요청·관리자 화면·제휴 링크는 `npm start` 로 서버를 실행한 환경(내 PC, Codespaces, Render 등)에서만 동작합니다.
+
 ## 기술 스택과 선택 이유
 
 | 영역 | 선택 | 이유 |
 |---|---|---|
 | 서버 | Node 내장 `http` + 내장 `node:sqlite` | 의존성 없이 바로 실행, 관리자 권한을 서버에서 검증 |
-| 화면 | 빌드 없는 Vanilla ES Modules SPA | 설치·빌드 단계 없음. 나중에 React/앱으로 옮겨도 `public/js/domain/` 로직은 그대로 재사용 |
+| 화면 | 빌드 없는 Vanilla ES Modules SPA | 설치·빌드 단계 없음. 나중에 React/앱으로 옮겨도 `docs/js/domain/` 로직은 그대로 재사용 |
 | 사진 인식 | Claude 비전(선택) → 없으면 Tesseract.js | 키가 없어도 동작, 있으면 앞·뒤 라벨을 구조화해 추출 |
-| 다국어 | `public/i18n/{ko,en}.json` | 문구를 코드에 흩지 않고 리소스로 관리 |
+| 다국어 | `docs/i18n/{ko,en}.json` | 문구를 코드에 흩지 않고 리소스로 관리 |
 
 ## 구조
 
@@ -36,7 +44,7 @@ server/
   affiliate.js   지역별 제휴 링크(쿠팡 파트너스 딥링크 API, 아마존 태그), 링크 상태 확인
   ocr.js         라벨 사진 → 텍스트 구조화 (보이는 글자만, 추측 금지)
   db.js          SQLite 스키마: catalog_products, product_requests, affiliate_links, admin_sessions
-public/
+docs/
   i18n/          번역 리소스 (앱 이름: app.name)
   js/domain/     화면과 무관한 순수 로직 (테스트 대상)
     categories.js  지원 카테고리, 바르는 순서, 메이크업 감지
@@ -60,6 +68,34 @@ tests/           node:test 단위 테스트
 - 검색 결과는 승인 제품이 먼저 나오고, 고객 입력은 "사용자 입력 · n명"으로 구분됩니다. 고른 뒤에도 사용자가 라벨과 확인해야 저장됩니다.
 - 관리자 화면 > 고객 입력 탭에서 부적절한 항목을 숨길 수 있습니다.
 
+## 상품 DB (검증된 제품부터 단계적으로)
+
+- 데이터: `docs/data/products.json`(상품), `docs/data/ingredients.json`(성분 표 · 상품과 다대다는 `ingredientIds` 순서 배열)
+- 현재 **22개**: COSRX 16 · Torriden 6 (클렌저·토너·패드·에센스·세럼·크림·페이스 오일·선크림·마스크)
+- 전성분·공식 사용법·용량·사용기한은 **브랜드 공식 글로벌 몰 원문을 스크립트로 그대로 추출**합니다(손으로 옮겨 적지 않음). 국내(올리브영) 판매 제품은 처방·용량이 다를 수 있다고 화면에 표시합니다.
+- 분자량·지용성 지표(XLogP)는 **PubChem** 단일 화합물 자료만 사용하고, 고분자·추출물·혼합물은 "자료 부족"으로 둡니다. 분자량은 순서 판단에 쓰지 않습니다.
+- 상품 이미지는 사용 권한을 확인하지 못해 **수집하지 않았고**, 기본 이미지를 보여 줍니다(`imageUrl: null`).
+- 상품 추가: `scripts/catalog-sources.json` 에 공식 URL을 넣고 `npm run build:catalog`. 사용 시간·빈도·순서·병용 주의는 공식 문장(`quote`)이 있을 때만 입력합니다.
+
+## 사용자 루틴과 분석
+
+- 제품(상품 DB) 또는 화장대 제품으로 아침/저녁 루틴을 만들고, 순서 변경·교체·삭제·복제·메모·사용량을 저장합니다.
+- 분석 결과는 **장점 / 단점 / 주의 조합 / 추천 순서(이유) / 공식 사용법과 다른 순서 / 공식 사용 빈도**로 나오며, 근거를 `제조사 공식`·`전성분 확인`·`일반 순서 규칙`으로 구분합니다. 문제가 없으면 "그대로 사용 가능"으로 안내합니다.
+- "함께 사용 금지"는 제조사 문장이 있는 경우에만 표시합니다(예: COSRX AHA/BHA 토너 — "Avoid using with other acids (AHAs / BHAs / Retinols & Vitamin C)").
+- 내 기록(좋았던 점·불편한 점·피부 반응·기간·만족도·계속 사용 여부·제품별 메모)은 앱 분석과 분리되어 날짜별로 쌓이고, 버전 저장으로 수정 전후를 비교합니다.
+
+## 데이터베이스 설계와 Supabase
+
+- **Supabase는 이 프로젝트와 호환됩니다.** 정적 프런트(GitHub Pages)에서 공식 JS 클라이언트로 접속할 수 있고, Postgres + Storage(상품 이미지) + RLS(개인 루틴은 본인만)로 요구사항을 충족합니다.
+- 스키마: [`supabase/schema.sql`](supabase/schema.sql) — `products`, `ingredients`, `product_ingredients`(다대다), `routines`, `routine_items`, `routine_versions`, `routine_logs`, RLS 정책, `product-images` 버킷.
+- **기기 간 동기화 연결됨** (`docs/js/sync.js`, 프로젝트 `wgipwbowaugqhrtecqvp`). 설정 → "기기 간 동기화"에서 이메일 로그인 링크로 로그인하면 화장대·내 루틴·기록·마스크팩이 `user_state` 테이블에 저장되어 PC와 휴대폰에서 같아집니다. 피부 정보와 언어 설정은 기기에만 남습니다.
+  - 코드에 있는 `sb_publishable_…` 키는 브라우저용 공개 키입니다(데이터는 RLS로 본인 행만 접근). `sb_secret_…`/service_role 키는 절대 코드에 넣지 마세요.
+  - 더 최근에 저장된 쪽이 반영되고, 새 기기에서 처음 로그인하면 "클라우드 / 이 기기" 중 어떤 데이터를 쓸지 묻습니다.
+- **Supabase 대시보드에서 1회 설정이 필요합니다.**
+  1. SQL Editor에서 `supabase/schema.sql` 전체를 실행 (테이블·권한 생성)
+  2. Authentication → URL Configuration → Redirect URLs에 앱 주소 추가: `http://localhost:3000/**`, `https://<아이디>.github.io/<저장소>/**`
+  3. (구경하기 기능) SQL Editor에서 `supabase/002_shared_routines.sql` 실행 — 공개 루틴은 누구나 읽기, 쓰기·수정·삭제는 본인만, 신고 3회 시 자동 숨김(해제는 Table Editor에서 `hidden` 을 false 로)
+
 ## 화면
 하단 메뉴: 주간 · 화장대 · **오늘(가운데)** · 마스크팩 · 설정
 
@@ -75,12 +111,12 @@ tests/           node:test 단위 테스트
 - 중복 제품은 알리기만 하고 삭제하거나 사용을 금지하지 않습니다. 알림은 설정에서 끌 수 있습니다.
 
 ## 이름·문구·언어·지역 바꾸기
-- 앱 이름: `public/i18n/ko.json`, `en.json` 의 `app.name` (+ `public/manifest.webmanifest`)
+- 앱 이름: `docs/i18n/ko.json`, `en.json` 의 `app.name` (+ `docs/manifest.webmanifest`)
 - 문구: 같은 파일의 해당 키를 수정
-- 언어 추가: `public/js/i18n.js` 의 `SUPPORTED` 에 코드를 추가하고 같은 키 구조의 JSON 파일을 만듭니다
+- 언어 추가: `docs/js/i18n.js` 의 `SUPPORTED` 에 코드를 추가하고 같은 키 구조의 JSON 파일을 만듭니다
 - 지역·제휴처 추가: `server/config.js` 의 `REGIONS` 와 `server/affiliate.js` 의 `PROVIDERS`
-- 성분 표기 추가(다른 언어 INCI): `public/js/domain/ingredients.js` 의 정규식
-- 색상: `public/styles.css` 맨 위의 CSS 변수
+- 성분 표기 추가(다른 언어 INCI): `docs/js/domain/ingredients.js` 의 정규식
+- 색상: `docs/styles.css` 맨 위의 CSS 변수
 
 ## 제휴 링크 설정
 코드에는 어떤 키도 들어 있지 않습니다. 모두 `.env` 로 설정합니다.
